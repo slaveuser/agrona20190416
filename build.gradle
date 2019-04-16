@@ -1,0 +1,377 @@
+/*
+ * Copyright 2014-2019 Real Logic Ltd.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+buildscript {
+    repositories {
+        mavenCentral()
+    }
+}
+
+plugins {
+    id 'java'
+    id 'java-library'
+    id 'com.github.johnrengelman.shadow' version '5.0.0' apply false
+    id "io.freefair.javadoc-links" version "3.2.0" apply false
+}
+
+defaultTasks 'clean', 'build', 'shadowJar', 'install'
+
+def agronaGroup = 'org.agrona'
+def agronaVersion = '0.9.36-SNAPSHOT'
+def agronaJavaVersion = JavaVersion.VERSION_1_8
+
+group = agronaGroup
+version = agronaVersion
+ext.isReleaseVersion = !version.endsWith("SNAPSHOT")
+
+ext {
+    group = agronaGroup
+    version = agronaVersion
+
+    if (!project.hasProperty('ossrhUsername')) {
+        ossrhUsername = ''
+    }
+
+    if (!project.hasProperty('ossrhPassword')) {
+        ossrhPassword = ''
+    }
+}
+
+def projectPom = {
+    name = 'agrona'
+    packaging = 'pom'
+    // optionally artifactId can be defined here
+    description = 'High performance primitives and utility library.'
+    url = 'https://github.com/real-logic/agrona'
+
+    scm {
+        connection = 'scm:git:https://github.com/real-logic/agrona.git'
+        developerConnection = 'scm:git:https://github.com/real-logic/agrona.git'
+        url = 'https://github.com/real-logic/agrona.git'
+    }
+
+    licenses {
+        license {
+            name = 'The Apache License, Version 2.0'
+            url = 'http://www.apache.org/licenses/LICENSE-2.0.txt'
+        }
+    }
+
+    developers {
+        developer {
+            id = 'tmontgomery'
+            name = 'Todd L. Montgomery'
+            email = 'tmont@nard.net'
+            url = 'https://github.com/tmontgomery'
+        }
+        developer {
+            id = 'mjpt777'
+            name = 'Martin Thompson'
+            email = 'mjpt777@gmail.com'
+            url = 'https://github.com/mjpt777'
+        }
+        developer {
+            id = 'RichardWarburton'
+            name = 'Richard Warburton'
+            email = 'richard.warburton@gmail.com'
+            url = 'https://github.com/RichardWarburton'
+        }
+        developer {
+            id = 'nitsanw'
+            name = 'Nitsan Wakart'
+            email = 'nitsanw@yahoo.com'
+            url = 'https://github.com/nitsanw'
+        }
+    }
+}
+
+allprojects {
+    repositories {
+        mavenCentral()
+    }
+}
+
+jar.enabled = false
+
+subprojects {
+    apply plugin: 'java'
+    apply plugin: 'java-library'
+    apply plugin: 'maven'
+    apply plugin: 'checkstyle'
+    apply plugin: 'signing'
+    apply plugin: 'eclipse'
+    apply plugin: 'io.freefair.javadoc-links'
+
+    group = agronaGroup
+    version = agronaVersion
+
+    jar.enabled = true
+
+    dependencies {
+        checkstyle 'com.puppycrawl.tools:checkstyle:8.19'
+
+        testImplementation 'junit:junit:4.12'
+        testImplementation 'org.mockito:mockito-core:2.27.0'
+        testImplementation 'org.hamcrest:hamcrest-library:1.3'
+    }
+
+    checkstyle {
+        toolVersion = '8.19'
+    }
+
+    compileJava {
+        sourceCompatibility = agronaJavaVersion
+        targetCompatibility = agronaJavaVersion
+        options.compilerArgs << '-XDignore.symbol.file' // Suppress warnings about using Unsafe
+        options.fork = true
+        options.forkOptions.javaHome = file("${System.env.JAVA_HOME}")
+        options.encoding = 'UTF-8'
+        options.deprecation = true
+    }
+
+    compileTestJava {
+        sourceCompatibility = agronaJavaVersion
+        targetCompatibility = agronaJavaVersion
+        options.encoding = 'UTF-8'
+        options.deprecation = true
+    }
+
+    test {
+        if (JavaVersion.current().ordinal() >= JavaVersion.VERSION_1_9.ordinal()) {
+            jvmArgs('--add-opens', 'java.base/java.lang.reflect=ALL-UNNAMED')
+            jvmArgs('--add-opens', 'java.base/sun.nio.ch=ALL-UNNAMED')
+        }
+
+        testLogging {
+            showStandardStreams = true
+            exceptionFormat = 'full'
+        }
+    }
+    
+    javadoc {
+        title = '<h1>Agrona</h1>'
+        options.bottom = '<i>Copyright &#169; 2014-2019 Real Logic Ltd. All Rights Reserved.</i>'
+        if (JavaVersion.current().ordinal() >= JavaVersion.VERSION_1_10.ordinal()) {
+            options.addBooleanOption 'html5', true
+        }
+    }
+
+    signing {
+        required { isReleaseVersion && gradle.taskGraph.hasTask("uploadArchives") }
+        sign configurations.archives
+    }
+}
+
+project(':agrona') {
+    if (null == System.getenv("JAVA_HOME")) {
+        throw new GradleException('JAVA_HOME environment variable required')
+    }
+
+    dependencies {
+        testImplementation 'com.google.guava:guava-testlib:27.0.1-jre'
+    }
+
+    uploadArchives {
+        repositories {
+            mavenDeployer {
+                beforeDeployment {
+                    MavenDeployment deployment -> signing.signPom(deployment)
+                }
+
+                repository(url: "https://oss.sonatype.org/service/local/staging/deploy/maven2/") {
+                    authentication(userName: ossrhUsername, password: ossrhPassword)
+                }
+
+                snapshotRepository(url: "https://oss.sonatype.org/content/repositories/snapshots/") {
+                    authentication(userName: ossrhUsername, password: ossrhPassword)
+                }
+
+                pom.project(projectPom)
+            }
+        }
+    }
+
+    def generatedDir = file("${buildDir}/generated-src")
+    sourceSets {
+        generated.java.srcDir generatedDir
+    }
+
+    compileGeneratedJava {
+        dependsOn 'generatePrimitiveExpansions'
+        sourceCompatibility = agronaJavaVersion
+        targetCompatibility = agronaJavaVersion
+        options.encoding = 'UTF-8'
+        options.deprecation = true
+        classpath += sourceSets.main.runtimeClasspath
+    }
+
+    task generatePrimitiveExpansions(type: JavaExec) {
+        main = 'org.agrona.generation.PrimitiveExpander'
+        classpath = sourceSets.main.runtimeClasspath
+        outputs.dir generatedDir
+    }
+
+    task sourcesJar(type: Jar) {
+        archiveClassifier = 'sources'
+        from sourceSets.main.allSource
+        from sourceSets.generated.allSource
+    }
+
+    jar {
+        from sourceSets.generated.output
+
+        manifest.attributes(
+            'Implementation-Title': 'Agrona',
+            'Implementation-Version': "${agronaVersion}",
+            'Implementation-Vendor': 'Real Logic Limited',
+            'Automatic-Module-Name': 'org.agrona.core'
+        )
+    }
+
+    javadoc {
+        source += sourceSets.main.allJava
+        source += sourceSets.generated.allJava
+        classpath = configurations.compile
+    }
+
+    task javadocJar(type: Jar, dependsOn: javadoc) {
+        archiveClassifier = 'javadoc'
+        from javadoc.destinationDir
+    }
+
+    artifacts {
+        archives sourcesJar
+        archives javadocJar
+    }
+
+    sourceSets {
+        test {
+            compileClasspath += generated.output
+            runtimeClasspath += generated.output
+        }
+    }
+}
+
+project(':agrona-agent') {
+    apply plugin: 'com.github.johnrengelman.shadow'
+
+    dependencies {
+        implementation project(':agrona')
+        implementation "net.bytebuddy:byte-buddy:1.9.10"
+    }
+
+    jar {
+        manifest.attributes(
+            'Implementation-Title': 'Agrona',
+            'Implementation-Version': "${agronaVersion}",
+            'Implementation-Vendor': 'Real Logic Limited',
+            'Premain-Class': 'org.agrona.agent.BufferAlignmentAgent',
+            'Agent-Class': 'org.agrona.agent.BufferAlignmentAgent',
+            'Can-Redefine-Classes': 'true',
+            'Can-Retransform-Classes': 'true',
+            'Automatic-Module-Name': 'org.agrona.agent'
+        )
+    }
+
+    shadowJar {
+        dependencies {
+            exclude(project(':agrona'))
+        }
+
+        manifest.attributes(
+            'Implementation-Title': 'Agrona',
+            'Implementation-Version': "${agronaVersion}",
+            'Implementation-Vendor': 'Real Logic Limited',
+            'Premain-Class': 'org.agrona.agent.BufferAlignmentAgent',
+            'Agent-Class': 'org.agrona.agent.BufferAlignmentAgent',
+            'Can-Redefine-Classes': 'true',
+            'Can-Retransform-Classes': 'true',
+            'Automatic-Module-Name': 'org.agrona.agent.all'
+        )
+
+        relocate 'net.bytebuddy', 'org.agrona.shadow.net.bytebuddy'
+    }
+
+    uploadArchives {
+        repositories {
+            mavenDeployer {
+                beforeDeployment {
+                    MavenDeployment deployment -> signing.signPom(deployment)
+                }
+
+                repository(url: "https://oss.sonatype.org/service/local/staging/deploy/maven2/") {
+                    authentication(userName: ossrhUsername, password: ossrhPassword)
+                }
+
+                snapshotRepository(url: "https://oss.sonatype.org/content/repositories/snapshots/") {
+                    authentication(userName: ossrhUsername, password: ossrhPassword)
+                }
+
+                pom.project(projectPom)
+            }
+        }
+    }
+
+    uploadShadow {
+        repositories {
+            mavenDeployer {
+                beforeDeployment {
+                    MavenDeployment deployment -> signing.signPom(deployment)
+                }
+
+                repository(url: "https://oss.sonatype.org/service/local/staging/deploy/maven2/") {
+                    authentication(userName: ossrhUsername, password: ossrhPassword)
+                }
+
+                snapshotRepository(url: "https://oss.sonatype.org/content/repositories/snapshots/") {
+                    authentication(userName: ossrhUsername, password: ossrhPassword)
+                }
+
+                pom.project(projectPom)
+            }
+        }
+
+        mustRunAfter 'uploadArchives'
+    }
+
+    task sourcesJar(type: Jar) {
+        archiveClassifier = 'sources'
+        from sourceSets.main.allSource
+    }
+
+    task javadocJar(type: Jar, dependsOn: javadoc) {
+        archiveClassifier = 'javadoc'
+        from javadoc.destinationDir
+    }
+
+    artifacts {
+        archives sourcesJar
+        archives javadocJar
+    }
+
+    signing {
+        required { isReleaseVersion && gradle.taskGraph.hasTask("uploadArchives") }
+        sign configurations.shadow
+    }
+}
+
+task uploadToMavenCentral {
+    dependsOn 'agrona:uploadArchives', 'agrona-agent:uploadArchives', 'agrona-agent:uploadShadow'
+}
+
+wrapper {
+    gradleVersion = '5.3.1'
+    distributionType = 'ALL'
+}
